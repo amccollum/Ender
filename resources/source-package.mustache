@@ -1,19 +1,40 @@
 {{^options.noop}}
-(function () {
+(function ({{#hasInternal}}require{{/hasInternal}}) {
 
   var module = { exports: {} }, exports = module.exports;
 {{#mainSource}}
 
 {{{indented}}}{{/mainSource}}
-  provide("{{packageName}}", module.exports);
-{{#options.sandbox}}
+  provide("{{packageName}}{{#isInternal}}:{{mainPath}}{{/isInternal}}", module.exports);
+{{#options.sandbox}}{{^isInternal}}
 
   window["{{packageName}}"] = module.exports;
-{{/options.sandbox}}{{#enderSource}}
+{{/isInternal}}{{/options.sandbox}}{{#enderSource}}
 
 {{{indented}}}
 {{/enderSource}}
 {{^enderSource}}
   $.ender(module.exports);
 {{/enderSource}}
-}());{{/options.noop}}{{#options.noop}}{{{mainSource.raw}}}{{/options.noop}}
+}({{#hasInternal}}function (path) {
+    var base = "{{mainPath}}";
+    
+    if (path.charAt(0) != '.') return require(path);
+
+    path = path.replace(/(\.js)?$/, '.js');
+    
+    if (~(i = base.lastIndexOf('/')))
+        path = base.substr(0, i+1) + path;
+
+    parts = path.split('/');
+    while (~(i = parts.indexOf('.'))) {
+        parts.splice(i, 1);
+    }
+
+    while (~(i = parts.lastIndexOf('..'))) {
+        if (!i) break;
+        parts.splice(i-1, 2);
+    }
+
+    return require("{{packageName}}:" + parts.join('/'));
+}{{/hasInternal}}));{{/options.noop}}{{#options.noop}}{{{mainSource.raw}}}{{/options.noop}}
