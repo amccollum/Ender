@@ -5,7 +5,7 @@
 {{#mainSource}}
 
 {{{indented}}}{{/mainSource}}
-  provide("{{packageName}}{{#isInternal}}:{{mainPath}}{{/isInternal}}", module.exports);
+  provide("{{packageName}}{{#isInternal}}:{{filename}}{{/isInternal}}", module.exports);
 {{#options.sandbox}}{{^isInternal}}
 
   window["{{packageName}}"] = module.exports;
@@ -16,4 +16,4 @@
 {{^enderSource}}
   $.ender(module.exports);
 {{/enderSource}}
-}({{#hasInternal}}function (path) { return require(path, "{{mainPath}}", "{{packageName}}:"); }{{/hasInternal}}));{{/options.noop}}{{#options.noop}}{{{mainSource.raw}}}{{/options.noop}}
+}({{#hasInternal}}function (path) { return require(path, "{{dirname}}", "{{packageName}}"); }{{/hasInternal}}));{{/options.noop}}{{#options.noop}}{{{mainSource.raw}}}{{/options.noop}}
