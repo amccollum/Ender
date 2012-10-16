@@ -31,8 +31,9 @@ var testCase        = require('buster').testCase
   , FilesystemError = require('../../lib/errors').FilesystemError
 
   , templateFiles = {
-        'standard' : __dirname + '/../../resources/source-package.mustache'
-      , 'root'     : __dirname + '/../../resources/root-package.mustache'
+        'standard' : path.join(__dirname, '/../../resources/source-package.mustache')
+      , 'root'     : path.join(__dirname, '/../../resources/root-package.mustache')
+      , 'file'     : path.join(__dirname, '/../../resources/source-file.mustache')
     }
   , templateFileContents
 
@@ -49,6 +50,7 @@ testCase('Source package', {
         cb(null, [ f ])
       }
 
+      // TODO: demystify and clean this mess up
       this.runAsStringTest = function (options, done) {
         // options: expectedFileReads, fileContents, readDelays, parents, pkg, json, expectedResult
 
@@ -62,7 +64,7 @@ testCase('Source package', {
                     path.resolve(file)
                   , 'utf-8'
                 )
-            if (!options.readDelays)
+          if (!options.readDelays)
             exp.callsArgWith(2, null, options.fileContents[index])
           else {
             setTimeout(function () {
@@ -77,6 +79,13 @@ testCase('Source package', {
             .withArgs(path.resolve(templateFiles[tmplType]), 'utf-8')
             .callsArgWith(2, null, templateFileContents[tmplType])
           templateFileContents[tmplType] = -1 // i.e. only run this branch once
+        }
+        if (tmplType == 'standard' && options.json.main && typeof templateFileContents.file == 'string') {
+          fsMock
+            .expects('readFile')
+            .withArgs(path.resolve(templateFiles.file), 'utf-8')
+            .callsArgWith(2, null, templateFileContents.file)
+          templateFileContents.file = -1 // i.e. only run this branch once
         }
 
         srcPkg = SourcePackage.create(
@@ -117,7 +126,7 @@ testCase('Source package', {
       if (!templateFileContents) {
         // unfortunately we have to mock this out as we're mocking out the whole `fs`
         async.map(
-            [ 'standard', 'root' ]
+            [ 'standard', 'root', 'file' ]
           , function (type, callback) {
               fs.readFile(templateFiles[type], 'utf8', callback)
             }
@@ -127,6 +136,7 @@ testCase('Source package', {
               templateFileContents = {
                   'standard' : templates[0]
                 , 'root'     : templates[1]
+                , 'file'     : templates[2]
               }
               done()
             }
@@ -275,7 +285,7 @@ testCase('Source package', {
                   , 'BAR!'
                   , 'BAZ!'
                 ]
-              , readDelays: [ 50, 25, 0 ]
+              , readDelays: [ 50, 25, 10 ]
               , pkg: 'mypkg'
               , json: {
                     name: 'mypkg-name'
@@ -376,7 +386,7 @@ testCase('Source package', {
                   , 'BAR!'
                   , 'BAZ!'
                 ]
-              , readDelays: [ 50, 25, 0 ]
+              , readDelays: [ 50, 25, 10 ]
               , pkg: 'mypkg'
               , json: {
                     name: 'mypkg-name'
@@ -410,7 +420,7 @@ testCase('Source package', {
               , 'ENDERBAR!'
               , 'ENDERBAZ!'
             ]
-          , readDelays: [ 50, 0, 25, 40, 0, 20 ]
+          , readDelays: [ 50, 10, 25, 40, 10, 20 ]
           , pkg: 'mypkg'
           , json: {
                 name: 'mypkg-name'
@@ -573,8 +583,11 @@ testCase('Source package', {
     }
 
   , 'test identifier': function () {
-      var srcPackage = SourcePackage.create('foobar', null, false, { name: 'foobar', version: '1.2.3', _original: { name: 'barfoo' } })
-      assert.equals(srcPackage.getIdentifier(), 'barfoo@1.2.3')
+      var json = { name: 'foobar', version: '1.2.3' }
+        , srcPackage = SourcePackage.create('foobar', null, false, json)
+
+      json.__proto__ = { name: 'barfoo' } // original json, see package-descriptor.js
+      assert.equals(srcPackage.identifier, 'barfoo@1.2.3')
     }
 
   , 'test fs error': function (done) {
@@ -593,5 +606,59 @@ testCase('Source package', {
             assert.same(err.message, errArg.message)
             done()
           })
+    }
+
+  , 'extendOptions': {
+        'test nothing to extend': function () {
+          var pkg  = SourcePackage.create('whatevs', [], false, { name: 'whatevs', main: './main.js' }, {})
+            , opts = { foo: 'bar' }
+
+          pkg.extendOptions(opts)
+          assert.equals(opts, { foo: 'bar' }) // shoudn't be touched
+        }
+
+      , 'test externs': function () {
+          var pkg  = SourcePackage.create('whatevs', [], false, { name: 'whatevs', main: './main.js', externs: 'lib/foo.js' }, {})
+            , opts = { foo: 'bar' }
+
+          pkg.extendOptions(opts)
+          assert.equals(opts, { foo: 'bar', externs: [ path.resolve('node_modules/whatevs/lib/foo.js') ] }) // shoudn't be touched
+        }
+
+      , 'test externs with overridden pkg name': function () {
+          // just to make sure we're pointing to the right dir, not using the overridden name
+
+          var json = { name: 'whatevs', main: './main.js', externs: 'lib/foo.js' }
+            , pkg  = SourcePackage.create('whatevs', [], false, json, {})
+            , opts = { foo: 'bar' }
+          json.__proto__ = { name: 'whoa' }
+
+          pkg.extendOptions(opts)
+          assert.equals(opts, { foo: 'bar', externs: [ path.resolve('node_modules/whoa/lib/foo.js') ] })
+        }
+
+      , 'test externs array and nested pkg': function () {
+          var pkg  = SourcePackage.create('whatevs', [ 'boom', 'bang' ], false, { name: 'whatevs', main: './main.js', externs: [ 'lib/foo.js', 'BOOM.js' ] }, {})
+            , opts = { foo: 'bar' }
+
+          pkg.extendOptions(opts)
+          assert.equals(opts, { foo: 'bar', externs: [
+              path.resolve('node_modules/boom/node_modules/bang/node_modules/whatevs/lib/foo.js')
+            , path.resolve('node_modules/boom/node_modules/bang/node_modules/whatevs/BOOM.js')
+          ] })
+        }
+
+      , 'test externs array over existing externs': function () {
+          var pkg  = SourcePackage.create('whatevs', [ ], false, { name: 'whatevs', main: './main.js', externs: [ 'lib/foo.js', 'BOOM.js' ] }, {})
+            , opts = { foo: 'bar', externs: [ 'existing1.js', 'existing2.js' ] }
+
+          pkg.extendOptions(opts)
+          assert.equals(opts, { foo: 'bar', externs: [
+              'existing1.js'
+            , 'existing2.js'
+            , path.resolve('node_modules/whatevs/lib/foo.js')
+            , path.resolve('node_modules/whatevs/BOOM.js')
+          ] })
+        }
     }
 })
